@@ -1,0 +1,471 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// =========================================
+// USER & BUSINESS
+// =========================================
+
+model User {
+  id        String   @id
+  email     String   @unique
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  businessProfile BusinessProfile?
+  customers       Customer[]
+  items           Item[]
+  documents       Document[]
+  signingRequests SigningRequest[]
+  invoices        Invoice[]
+  quotes          Quote[]
+  recurringSchedules RecurringSchedule[]
+  salespeople        Salesperson[]
+
+  @@map("users")
+}
+
+model BusinessProfile {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  businessName        String  @default("")
+  displayName         String  @default("")
+  logoPath            String?
+  address             String  @default("")
+  phone               String  @default("")
+  email               String  @default("")
+  website             String  @default("")
+  taxNumber           String  @default("")
+  defaultTaxRate      Decimal @default(0) @db.Decimal(5, 2)
+  defaultInvoiceNote  String  @default("")
+  defaultQuoteNote    String  @default("")
+  defaultFooter       String  @default("")
+  defaultPaymentTerms String  @default("Net 30")
+  invoiceNumberPrefix String  @default("INV-")
+  quoteNumberPrefix   String  @default("QTE-")
+  nextInvoiceNumber   Int     @default(1000)
+  nextQuoteNumber     Int     @default(1000)
+  brandColor          String  @default("#2563EB")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("business_profiles")
+}
+
+// =========================================
+// CUSTOMERS
+// =========================================
+
+model Customer {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name            String
+  email           String @default("")
+  phone           String @default("")
+  billingAddress  String @default("")
+  shippingAddress String @default("")
+  notes           String @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  invoices Invoice[]
+  quotes   Quote[]
+  recurringSchedules RecurringSchedule[]
+
+  @@index([userId])
+  @@map("customers")
+}
+
+// =========================================
+// ITEMS / SERVICES
+// =========================================
+
+model Item {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String  @default("")
+  unitPrice   Decimal @default(0) @db.Decimal(12, 2)
+  taxRate     Decimal @default(0) @db.Decimal(5, 2)
+  category    String  @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@map("items")
+}
+
+// =========================================
+// DOCUMENTS & SIGNING
+// =========================================
+
+model Document {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  title            String
+  originalFilename String
+  storagePath      String
+  pageCount        Int    @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  signingRequests SigningRequest[]
+
+  @@index([userId])
+  @@map("documents")
+}
+
+enum SigningStatus {
+  DRAFT
+  SENT
+  VIEWED
+  COMPLETED
+  EXPIRED
+}
+
+model SigningRequest {
+  id         String   @id @default(cuid())
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  recipientName     String
+  recipientEmail    String
+  token             String        @unique
+  status            SigningStatus @default(DRAFT)
+  expiresAt         DateTime?
+  completedFilePath String?
+  completedAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  fields      DocumentField[]
+  submission  Submission?
+  auditEvents AuditEvent[]
+
+  @@index([userId])
+  @@index([documentId])
+  @@map("signing_requests")
+}
+
+enum FieldType {
+  SIGNATURE
+  INITIALS
+  TEXT
+  DATE
+  CHECKBOX
+  DROPDOWN
+}
+
+enum FieldAssignee {
+  SENDER
+  RECIPIENT
+}
+
+model DocumentField {
+  id               String        @id @default(cuid())
+  signingRequestId String
+  signingRequest   SigningRequest @relation(fields: [signingRequestId], references: [id], onDelete: Cascade)
+
+  page        Int
+  x           Float
+  y           Float
+  width       Float
+  height      Float
+  type        FieldType
+  label       String       @default("")
+  placeholder String       @default("")
+  required    Boolean      @default(true)
+  optionsJson String       @default("[]")
+  assignedTo  FieldAssignee @default(RECIPIENT)
+  prefilledValue     String?
+  prefilledImagePath String?
+
+  createdAt DateTime @default(now())
+
+  @@index([signingRequestId])
+  @@map("document_fields")
+}
+
+model Submission {
+  id               String        @id @default(cuid())
+  signingRequestId String        @unique
+  signingRequest   SigningRequest @relation(fields: [signingRequestId], references: [id], onDelete: Cascade)
+
+  valuesJson        String
+  completedFilePath String
+  signerIp          String?
+  signerUserAgent   String?
+  completedAt       DateTime @default(now())
+
+  @@map("submissions")
+}
+
+enum AuditEventType {
+  CREATED
+  SENT
+  VIEWED
+  FIELD_FILLED
+  SIGNED
+  COMPLETED
+  EXPIRED
+}
+
+model AuditEvent {
+  id               String        @id @default(cuid())
+  signingRequestId String
+  signingRequest   SigningRequest @relation(fields: [signingRequestId], references: [id], onDelete: Cascade)
+
+  type         AuditEventType
+  metadataJson String         @default("{}")
+  ip           String?
+  userAgent    String?
+  createdAt    DateTime       @default(now())
+
+  @@index([signingRequestId])
+  @@map("audit_events")
+}
+
+// =========================================
+// INVOICES & QUOTES
+// =========================================
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  VIEWED
+  PAID
+  OVERDUE
+  VOID
+}
+
+model Invoice {
+  id         String        @id @default(cuid())
+  userId     String
+  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  customerId String?
+  customer   Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  invoiceNumber       String
+  status              InvoiceStatus @default(DRAFT)
+  date                DateTime      @default(now())
+  dueDate             DateTime?
+  paymentTerms        String        @default("Net 30")
+  purchaseOrderNumber String        @default("")
+  salesperson         String        @default("")
+
+  billingAddress  String @default("")
+  shippingAddress String @default("")
+
+  subtotal Decimal @default(0) @db.Decimal(12, 2)
+  taxTotal Decimal @default(0) @db.Decimal(12, 2)
+  total    Decimal @default(0) @db.Decimal(12, 2)
+  balance  Decimal @default(0) @db.Decimal(12, 2)
+
+  publicNote  String @default("")
+  privateNote String @default("")
+  footerNote  String @default("")
+
+  pdfPath String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lineItems InvoiceLineItem[]
+
+  @@unique([userId, invoiceNumber])
+  @@index([userId])
+  @@index([customerId])
+  @@index([userId, status])
+  @@map("invoices")
+}
+
+model InvoiceLineItem {
+  id        String  @id @default(cuid())
+  invoiceId String
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  itemId    String?
+
+  quantity    Decimal @default(1) @db.Decimal(12, 2)
+  name        String  @default("")
+  description String  @default("")
+  unitPrice   Decimal @default(0) @db.Decimal(12, 2)
+  taxRate     Decimal @default(0) @db.Decimal(5, 2)
+  lineTotal   Decimal @default(0) @db.Decimal(12, 2)
+  sortOrder   Int     @default(0)
+
+  @@index([invoiceId])
+  @@map("invoice_line_items")
+}
+
+enum QuoteStatus {
+  DRAFT
+  SENT
+  VIEWED
+  ACCEPTED
+  DECLINED
+  EXPIRED
+  CONVERTED
+}
+
+model Quote {
+  id         String      @id @default(cuid())
+  userId     String
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  customerId String?
+  customer   Customer?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  quoteNumber String
+  status      QuoteStatus @default(DRAFT)
+  date        DateTime    @default(now())
+  validUntil  DateTime?
+  salesperson String      @default("")
+
+  billingAddress  String @default("")
+  shippingAddress String @default("")
+
+  subtotal Decimal @default(0) @db.Decimal(12, 2)
+  taxTotal Decimal @default(0) @db.Decimal(12, 2)
+  total    Decimal @default(0) @db.Decimal(12, 2)
+
+  publicNote  String @default("")
+  privateNote String @default("")
+  footerNote  String @default("")
+
+  pdfPath              String?
+  convertedToInvoiceId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lineItems QuoteLineItem[]
+
+  @@unique([userId, quoteNumber])
+  @@index([userId])
+  @@index([customerId])
+  @@index([userId, status])
+  @@map("quotes")
+}
+
+model QuoteLineItem {
+  id      String @id @default(cuid())
+  quoteId String
+  quote   Quote  @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  itemId  String?
+
+  quantity    Decimal @default(1) @db.Decimal(12, 2)
+  name        String  @default("")
+  description String  @default("")
+  unitPrice   Decimal @default(0) @db.Decimal(12, 2)
+  taxRate     Decimal @default(0) @db.Decimal(5, 2)
+  lineTotal   Decimal @default(0) @db.Decimal(12, 2)
+  sortOrder   Int     @default(0)
+
+  @@index([quoteId])
+  @@map("quote_line_items")
+}
+
+// =========================================
+// RECURRING SCHEDULES
+// =========================================
+
+enum RecurringFrequency {
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+enum RecurringStatus {
+  ACTIVE
+  PAUSED
+  CANCELLED
+  COMPLETED
+}
+
+enum RecurringType {
+  INVOICE
+  QUOTE
+}
+
+model RecurringSchedule {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+
+  type           RecurringType
+  frequency      RecurringFrequency
+  startDate      DateTime
+  endDate        DateTime?
+  nextRunDate    DateTime
+  lastRunDate    DateTime?
+  status         RecurringStatus @default(ACTIVE)
+  autoSend       Boolean         @default(true)
+  occurrencesRun Int             @default(0)
+  maxOccurrences Int?
+  templateData   Json
+
+  generatedItems RecurringGenerated[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, status])
+  @@index([nextRunDate, status])
+  @@map("recurring_schedules")
+}
+
+// =========================================
+// SALESPEOPLE
+// =========================================
+
+model Salesperson {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@map("salespeople")
+}
+
+model RecurringGenerated {
+  id         String            @id @default(cuid())
+  scheduleId String
+  schedule   RecurringSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  invoiceId   String?
+  quoteId     String?
+  generatedAt DateTime @default(now())
+  emailSent   Boolean  @default(false)
+
+  @@index([scheduleId])
+  @@map("recurring_generated")
+}

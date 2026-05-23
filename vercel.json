@@ -1,0 +1,11 @@
+{
+  "buildCommand": "prisma generate && next build",
+  "framework": "nextjs",
+  "regions": ["sfo1"],
+  "crons": [
+    {
+      "path": "/api/cron/recurring",
+      "schedule": "0 9 * * *"
+    }
+  ]
+}
