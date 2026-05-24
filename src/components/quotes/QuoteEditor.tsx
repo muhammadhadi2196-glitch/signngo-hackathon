@@ -373,6 +373,7 @@ export function QuoteEditor({
                   onChangePublic={(v) => setValue("publicNote", v)}
                   onChangePrivate={(v) => setValue("privateNote", v)}
                   onChangeFooter={(v) => setValue("footerNote", v)}
+                  polishContext="quote_notes"
                 />
               </div>
               <div className="w-full md:w-64 bg-slate-50 rounded-xl p-4 border border-slate-200">

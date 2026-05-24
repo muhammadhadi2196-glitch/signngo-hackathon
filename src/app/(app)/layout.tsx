@@ -7,12 +7,14 @@ import { Topbar } from "@/components/layout/Topbar";
 import { NavigationProgress } from "@/components/layout/NavigationProgress";
 import { BobWidget } from "@/components/bob/BobWidget";
 import { QuoteGeneratorModal } from "@/components/bob/QuoteGeneratorModal";
+import { RewriterModal } from "@/components/bob/RewriterModal";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { User } from "@supabase/supabase-js";
 import {
   BOB_EVENTS,
   type BobAction,
   type OpenQuoteGeneratorDetail,
+  type OpenRewriterDetail,
 } from "@/lib/bob/types";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -22,6 +24,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   const [quoteGenOpen, setQuoteGenOpen] = useState(false);
   const [quoteGenInitialText, setQuoteGenInitialText] = useState<string>("");
+
+  const [rewriterOpen, setRewriterOpen] = useState(false);
+  const [rewriterInitialText, setRewriterInitialText] = useState<string>("");
 
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
@@ -37,9 +42,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       setQuoteGenInitialText(detail.initialText ?? "");
       setQuoteGenOpen(true);
     }
+    function onOpenRewriter(e: Event) {
+      const detail = (e as CustomEvent<OpenRewriterDetail>).detail ?? {};
+      setRewriterInitialText(detail.initialText ?? "");
+      setRewriterOpen(true);
+    }
     window.addEventListener(BOB_EVENTS.openQuoteGenerator, onOpenQuoteGen);
-    return () =>
+    window.addEventListener(BOB_EVENTS.openRewriter, onOpenRewriter);
+    return () => {
       window.removeEventListener(BOB_EVENTS.openQuoteGenerator, onOpenQuoteGen);
+      window.removeEventListener(BOB_EVENTS.openRewriter, onOpenRewriter);
+    };
   }, []);
 
   const handleBobAction = useCallback(
@@ -53,6 +66,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           setQuoteGenOpen(true);
           break;
         case "open_rewriter":
+          setRewriterInitialText("");
+          setRewriterOpen(true);
+          break;
         case "open_property_estimator":
           // eslint-disable-next-line no-console
           console.log("[Bob] action pending wiring:", action);
@@ -84,6 +100,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         open={quoteGenOpen}
         initialText={quoteGenInitialText}
         onClose={() => setQuoteGenOpen(false)}
+      />
+      <RewriterModal
+        open={rewriterOpen}
+        initialText={rewriterInitialText}
+        onClose={() => setRewriterOpen(false)}
       />
     </div>
   );
