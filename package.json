@@ -17,9 +17,12 @@
     "@prisma/client": "^5.22.0",
     "@react-email/components": "^1.0.12",
     "@react-email/render": "^2.0.8",
+    "@react-google-maps/api": "^2.20.8",
     "@react-pdf/renderer": "^4.5.1",
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.105.4",
+    "@turf/area": "^7.3.5",
+    "@turf/helpers": "^7.3.5",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "fuse.js": "^7.3.0",
@@ -39,6 +42,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@types/google.maps": "^3.64.1",
     "@types/node": "^20",
     "@types/react": "^18.3.28",
     "@types/react-dom": "^18.3.7",
