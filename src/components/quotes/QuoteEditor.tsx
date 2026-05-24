@@ -3,16 +3,30 @@
 import { useForm, FormProvider, useWatch } from "react-hook-form";
 import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
-import { ArrowLeft, FileText, Send, Save } from "lucide-react";
+import { ArrowLeft, FileText, Send, Save, Ruler, Trash2 } from "lucide-react";
+import { nanoid } from "nanoid";
 import { api } from "@/lib/api";
 import { useToast } from "@/components/ui/Toast";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
-import { LineItemsTable, type ItemOption } from "@/components/invoices/LineItemsTable";
+import {
+  LineItemsTable,
+  type ItemOption,
+  type Dimension,
+} from "@/components/invoices/LineItemsTable";
 import { NotesTabs } from "@/components/invoices/NotesTabs";
 import { TotalsPanel } from "@/components/invoices/TotalsPanel";
 import { SalespersonCombobox, type SalespersonOption } from "@/components/ui/SalespersonCombobox";
+
+const MapDimensionModal = dynamic(
+  () =>
+    import("./MapDimensionModal").then((m) => ({
+      default: m.MapDimensionModal,
+    })),
+  { ssr: false }
+);
 
 interface CustomerOption {
   id: string;
@@ -78,6 +92,17 @@ export function QuoteEditor({
   const [saving, setSaving] = useState(false);
   const [showSend, setShowSend] = useState(false);
   const [savedId, setSavedId] = useState<string | undefined>(quoteId);
+  const [dimensions, setDimensions] = useState<Dimension[]>([]);
+  const [showMapModal, setShowMapModal] = useState(false);
+
+  function handleSaveDimension(title: string, sqft: number) {
+    setDimensions((prev) => [...prev, { id: nanoid(), title, sqft }]);
+    setShowMapModal(false);
+  }
+
+  function handleRemoveDimension(id: string) {
+    setDimensions((prev) => prev.filter((d) => d.id !== id));
+  }
 
   const methods = useForm<QuoteFormData>({
     defaultValues: {
@@ -316,8 +341,66 @@ export function QuoteEditor({
 
             <hr className="border-slate-100" />
 
+            {/* Dimensions */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-slate-700">
+                    Dimensions
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Measure property areas on a satellite map to reuse as line
+                    item quantities.
+                  </p>
+                </div>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  type="button"
+                  onClick={() => setShowMapModal(true)}
+                >
+                  <Ruler className="h-3.5 w-3.5" />
+                  Add Dimension
+                </Button>
+              </div>
+
+              {dimensions.length > 0 && (
+                <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
+                  {dimensions.map((dim) => (
+                    <li
+                      key={dim.id}
+                      className="flex items-center justify-between gap-3 px-4 py-2.5"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-slate-900">
+                          {dim.title}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          {dim.sqft.toLocaleString()} sq ft
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveDimension(dim.id)}
+                        className="text-slate-400 transition-colors hover:text-red-500"
+                        aria-label={`Remove ${dim.title}`}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <hr className="border-slate-100" />
+
             {/* Line items */}
-            <LineItemsTable items={items} defaultTaxRate={defaultTaxRate} />
+            <LineItemsTable
+              items={items}
+              defaultTaxRate={defaultTaxRate}
+              dimensions={dimensions}
+            />
 
             <hr className="border-slate-100" />
 
@@ -354,6 +437,13 @@ export function QuoteEditor({
           </div>
         </div>
       </div>
+
+      {showMapModal && (
+        <MapDimensionModal
+          onClose={() => setShowMapModal(false)}
+          onSave={handleSaveDimension}
+        />
+      )}
 
       {showSend && savedId && (
         <SendQuoteModal
