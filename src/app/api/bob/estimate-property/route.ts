@@ -91,7 +91,20 @@ async function fetchSatelliteImageBase64(
 ): Promise<{ base64: string; mediaType: "image/png" | "image/jpeg" }> {
   const res = await fetch(staticMapUrl, { cache: "no-store" });
   if (!res.ok) {
-    throw new Error(`Static Maps HTTP ${res.status}`);
+    // Google returns plain-text errors with helpful guidance ("This API is
+    // not activated on your API project", "API key has IP restrictions",
+    // "RefererNotAllowedMapError", etc.). Pass that through so the user
+    // sees something actionable instead of a bare HTTP code.
+    const body = await res.text().catch(() => "");
+    const detail = body.trim().slice(0, 240);
+    if (res.status === 403 && /not activated/i.test(body)) {
+      throw new Error(
+        "Google Maps Static API isn't enabled on your project. Open https://console.cloud.google.com/apis/library, search for \"Maps Static API\", and click Enable."
+      );
+    }
+    throw new Error(
+      `Google Maps Static API ${res.status}${detail ? `: ${detail}` : ""}`
+    );
   }
   const contentType = res.headers.get("content-type") ?? "image/png";
   const buf = Buffer.from(await res.arrayBuffer());
