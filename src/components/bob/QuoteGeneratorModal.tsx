@@ -19,6 +19,11 @@ interface QuoteGeneratorModalProps {
   open: boolean;
   onClose: () => void;
   initialText?: string;
+  /**
+   * When true and `initialText` is non-empty, the modal kicks off the
+   * clarify flow automatically as soon as it opens. Used by Voice-to-Quote.
+   */
+  autoStart?: boolean;
 }
 
 const MAX_CLARIFY_TURNS = 3;
@@ -35,6 +40,7 @@ export function QuoteGeneratorModal({
   open,
   onClose,
   initialText,
+  autoStart = false,
 }: QuoteGeneratorModalProps) {
   const router = useRouter();
 
@@ -50,6 +56,7 @@ export function QuoteGeneratorModal({
 
   const abortRef = useRef<AbortController | null>(null);
   const wasOpenRef = useRef(false);
+  const pendingAutoStartRef = useRef(false);
 
   // Reset on transition from closed → open. Pre-fill if initialText is given
   // (Voice-to-Quote, Property Estimator handoffs).
@@ -64,9 +71,10 @@ export function QuoteGeneratorModal({
       setDraft(null);
       setRegenerating(false);
       setErrorMessage(null);
+      pendingAutoStartRef.current = Boolean(autoStart && initialText?.trim());
     }
     wasOpenRef.current = open;
-  }, [open, initialText]);
+  }, [open, initialText, autoStart]);
 
   // Cleanup on unmount.
   useEffect(() => {
@@ -230,6 +238,18 @@ export function QuoteGeneratorModal({
     if (!inputText.trim()) return;
     void runClarifyTurn([]);
   }, [inputText, runClarifyTurn]);
+
+  // Auto-start the clarify flow when opened via Voice-to-Quote (or any
+  // caller that passes autoStart=true with initialText). Only fires once
+  // per open transition.
+  useEffect(() => {
+    if (!open) return;
+    if (!pendingAutoStartRef.current) return;
+    if (stage !== "input") return;
+    if (!inputText.trim()) return;
+    pendingAutoStartRef.current = false;
+    handleStart();
+  }, [open, stage, inputText, handleStart]);
 
   const handleAnswer = useCallback(
     (answer: string) => {

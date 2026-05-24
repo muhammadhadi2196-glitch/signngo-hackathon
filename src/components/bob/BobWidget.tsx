@@ -6,6 +6,7 @@ import { BobButton } from "./BobButton";
 import { BobPanel } from "./BobPanel";
 import { BOB_WELCOME_MESSAGE } from "@/lib/bob/systemPrompt";
 import {
+  BOB_EVENTS,
   parseBobActions,
   type BobAction,
   type BobMessage,
@@ -22,6 +23,8 @@ const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 const MAX_STORED_MESSAGES = 50;
 const AUTO_OPEN_DELAY_MS = 1500;
 const AUTO_CLOSE_DELAY_MS = 30_000;
+const VOICE_AUTOSUBMIT_DELAY_MS = 1000;
+const VOICE_AUTOSUBMIT_TICK_MS = 100;
 
 function generateId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -53,6 +56,12 @@ export function BobWidget({ userId, onAction }: BobWidgetProps) {
   const abortRef = useRef<AbortController | null>(null);
   const autoCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const userInteractedRef = useRef(false);
+
+  // Voice-to-Quote pending dispatch.
+  const voiceTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const voiceTranscriptRef = useRef<string>("");
+  const [voiceCountdown, setVoiceCountdown] = useState<number | null>(null);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
 
   const historyKey = userId ? `${HISTORY_KEY_PREFIX}${userId}` : null;
 
@@ -150,6 +159,80 @@ export function BobWidget({ userId, onAction }: BobWidgetProps) {
       clearTimeout(autoCloseTimerRef.current);
       autoCloseTimerRef.current = null;
     }
+  }, []);
+
+  // ── Voice-to-Quote ────────────────────────────────────────────────────
+  const cancelVoiceDispatch = useCallback(() => {
+    if (voiceTimerRef.current) {
+      clearInterval(voiceTimerRef.current);
+      voiceTimerRef.current = null;
+    }
+    voiceTranscriptRef.current = "";
+    setVoiceCountdown(null);
+  }, []);
+
+  const handleVoiceTranscript = useCallback(
+    (transcript: string) => {
+      const trimmed = transcript.trim();
+      if (!trimmed) return;
+
+      markInteracted();
+      cancelVoiceDispatch();
+      setVoiceError(null);
+      voiceTranscriptRef.current = trimmed;
+
+      // Show the transcript in the input so the user can confirm visually.
+      setInputValue(trimmed);
+
+      const startedAt = Date.now();
+      setVoiceCountdown(Math.ceil(VOICE_AUTOSUBMIT_DELAY_MS / 1000));
+
+      voiceTimerRef.current = setInterval(() => {
+        const elapsed = Date.now() - startedAt;
+        const remaining = VOICE_AUTOSUBMIT_DELAY_MS - elapsed;
+
+        if (remaining <= 0) {
+          if (voiceTimerRef.current) {
+            clearInterval(voiceTimerRef.current);
+            voiceTimerRef.current = null;
+          }
+          const text = voiceTranscriptRef.current;
+          voiceTranscriptRef.current = "";
+          setVoiceCountdown(null);
+          setInputValue("");
+
+          window.dispatchEvent(
+            new CustomEvent(BOB_EVENTS.openQuoteGenerator, {
+              detail: { initialText: text, autoStart: true },
+            })
+          );
+          return;
+        }
+
+        setVoiceCountdown(Math.max(1, Math.ceil(remaining / 1000)));
+      }, VOICE_AUTOSUBMIT_TICK_MS);
+    },
+    [cancelVoiceDispatch, markInteracted]
+  );
+
+  const handleVoiceError = useCallback((message: string) => {
+    setVoiceError(message);
+  }, []);
+
+  // Cancel pending voice dispatch when the user types (any change after
+  // the transcript was inserted).
+  useEffect(() => {
+    if (voiceCountdown === null) return;
+    if (inputValue !== voiceTranscriptRef.current) {
+      cancelVoiceDispatch();
+    }
+  }, [inputValue, voiceCountdown, cancelVoiceDispatch]);
+
+  // Cleanup voice timer on unmount.
+  useEffect(() => {
+    return () => {
+      if (voiceTimerRef.current) clearInterval(voiceTimerRef.current);
+    };
   }, []);
 
   const handleClose = useCallback(() => {
@@ -297,19 +380,41 @@ export function BobWidget({ userId, onAction }: BobWidgetProps) {
     [isStreaming, markInteracted, messages, onAction, pathname, userId]
   );
 
+  // When a voice error fires, surface it as a transient banner via the
+  // assistant message bubble — but keep it cheap (no chat history append).
+  // Reuse the existing inputValue area is already noisy; we route errors
+  // through onVoiceError → setVoiceError → render below.
+
   return (
     <div className="fixed bottom-4 right-4 z-50 sm:bottom-6 sm:right-6 print:hidden">
       {isOpen ? (
-        <BobPanel
-          messages={messages}
-          inputValue={inputValue}
-          onInputChange={setInputValue}
-          onSendMessage={sendMessage}
-          onClose={handleClose}
-          onClearHistory={handleClearHistory}
-          isStreaming={isStreaming}
-          streamingMessageId={streamingMessageId}
-        />
+        <div className="flex flex-col items-end gap-1.5">
+          {voiceError && (
+            <div className="max-w-[380px] rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800 shadow-sm">
+              {voiceError}
+              <button
+                type="button"
+                onClick={() => setVoiceError(null)}
+                className="ml-2 font-semibold underline-offset-2 hover:underline"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+          <BobPanel
+            messages={messages}
+            inputValue={inputValue}
+            onInputChange={setInputValue}
+            onSendMessage={sendMessage}
+            onClose={handleClose}
+            onClearHistory={handleClearHistory}
+            isStreaming={isStreaming}
+            streamingMessageId={streamingMessageId}
+            onVoiceTranscript={handleVoiceTranscript}
+            onVoiceError={handleVoiceError}
+            voiceCountdownSeconds={voiceCountdown ?? undefined}
+          />
+        </div>
       ) : (
         <BobButton onClick={handleOpen} />
       )}

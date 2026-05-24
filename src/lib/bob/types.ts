@@ -100,6 +100,11 @@ export const BOB_EVENTS = {
 
 export interface OpenQuoteGeneratorDetail {
   initialText?: string;
+  /**
+   * If true, the modal auto-clicks "Generate" once it opens. Used by the
+   * Voice-to-Quote handoff so the demo flow is one click → speak → quote.
+   */
+  autoStart?: boolean;
 }
 export interface OpenRewriterDetail {
   initialText?: string;

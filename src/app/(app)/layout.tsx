@@ -26,6 +26,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   const [quoteGenOpen, setQuoteGenOpen] = useState(false);
   const [quoteGenInitialText, setQuoteGenInitialText] = useState<string>("");
+  const [quoteGenAutoStart, setQuoteGenAutoStart] = useState(false);
 
   const [rewriterOpen, setRewriterOpen] = useState(false);
   const [rewriterInitialText, setRewriterInitialText] = useState<string>("");
@@ -47,6 +48,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     function onOpenQuoteGen(e: Event) {
       const detail = (e as CustomEvent<OpenQuoteGeneratorDetail>).detail ?? {};
       setQuoteGenInitialText(detail.initialText ?? "");
+      setQuoteGenAutoStart(Boolean(detail.autoStart));
       setQuoteGenOpen(true);
     }
     function onOpenRewriter(e: Event) {
@@ -84,6 +86,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           break;
         case "open_quote_generator":
           setQuoteGenInitialText("");
+          setQuoteGenAutoStart(false);
           setQuoteGenOpen(true);
           break;
         case "open_rewriter":
@@ -120,6 +123,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <QuoteGeneratorModal
         open={quoteGenOpen}
         initialText={quoteGenInitialText}
+        autoStart={quoteGenAutoStart}
         onClose={() => setQuoteGenOpen(false)}
       />
       <RewriterModal

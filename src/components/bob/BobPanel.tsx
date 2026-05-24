@@ -18,6 +18,9 @@ interface BobPanelProps {
   onClearHistory: () => void;
   isStreaming: boolean;
   streamingMessageId: string | null;
+  onVoiceTranscript?: (text: string) => void;
+  onVoiceError?: (message: string) => void;
+  voiceCountdownSeconds?: number;
 }
 
 export function BobPanel({
@@ -29,6 +32,9 @@ export function BobPanel({
   onClearHistory,
   isStreaming,
   streamingMessageId,
+  onVoiceTranscript,
+  onVoiceError,
+  voiceCountdownSeconds,
 }: BobPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -140,13 +146,21 @@ export function BobPanel({
       )}
 
       {/* Input */}
-      <div className="border-t border-slate-100 bg-slate-50/50 p-3">
+      <div className="border-t border-slate-100 bg-slate-50/50 p-3 space-y-1.5">
+        {voiceCountdownSeconds !== undefined && voiceCountdownSeconds > 0 && (
+          <p className="text-[11px] font-medium text-blue-600 px-1">
+            ✓ Got it. Opening quote builder in {voiceCountdownSeconds}s — type
+            to cancel.
+          </p>
+        )}
         <BobInput
           value={inputValue}
           onChange={onInputChange}
           onSubmit={handleSubmit}
           disabled={isStreaming}
           autoFocus
+          onVoiceTranscript={onVoiceTranscript}
+          onVoiceError={onVoiceError}
         />
       </div>
     </div>

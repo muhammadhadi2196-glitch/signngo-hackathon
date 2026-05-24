@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { Send } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { MicButton } from "./MicButton";
 
 interface BobInputProps {
   value: string;
@@ -11,6 +12,9 @@ interface BobInputProps {
   disabled?: boolean;
   autoFocus?: boolean;
   placeholder?: string;
+  /** Called with the final voice transcript (Voice-to-Quote). */
+  onVoiceTranscript?: (text: string) => void;
+  onVoiceError?: (message: string) => void;
 }
 
 export function BobInput({
@@ -20,6 +24,8 @@ export function BobInput({
   disabled = false,
   autoFocus = false,
   placeholder = "Ask Bob anything…",
+  onVoiceTranscript,
+  onVoiceError,
 }: BobInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -57,6 +63,15 @@ export function BobInput({
         "focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100"
       )}
     >
+      {onVoiceTranscript && (
+        <div className="flex items-center pl-0.5 pb-0.5 self-end">
+          <MicButton
+            onTranscript={onVoiceTranscript}
+            onError={onVoiceError}
+            disabled={disabled}
+          />
+        </div>
+      )}
       <textarea
         ref={textareaRef}
         rows={1}
