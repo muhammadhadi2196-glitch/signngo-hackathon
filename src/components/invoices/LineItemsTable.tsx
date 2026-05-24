@@ -12,6 +12,12 @@ export interface ItemOption {
   taxRate: number;
 }
 
+export interface Dimension {
+  id: string;
+  title: string;
+  sqft: number;
+}
+
 interface LineItemRow {
   itemId?: string | null;
   quantity: number;
@@ -26,13 +32,19 @@ interface Props {
   fieldName?: string;
   items: ItemOption[];
   defaultTaxRate?: number;
+  dimensions?: Dimension[];
 }
 
 function fmt(n: number) {
   return n.toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
 
-export function LineItemsTable({ fieldName = "lineItems", items, defaultTaxRate = 0 }: Props) {
+export function LineItemsTable({
+  fieldName = "lineItems",
+  items,
+  defaultTaxRate = 0,
+  dimensions = [],
+}: Props) {
   const { register, control, watch, setValue } = useFormContext<any>();
   const { fields, append, remove, move } = useFieldArray({
     control,
@@ -49,6 +61,12 @@ export function LineItemsTable({ fieldName = "lineItems", items, defaultTaxRate 
     setValue(`${fieldName}.${index}.description`, item.description);
     setValue(`${fieldName}.${index}.unitPrice`, item.unitPrice);
     setValue(`${fieldName}.${index}.taxRate`, item.taxRate);
+  }
+
+  function handleDimensionSelect(index: number, dimensionId: string) {
+    const dimension = dimensions.find((d) => d.id === dimensionId);
+    if (!dimension) return;
+    setValue(`${fieldName}.${index}.quantity`, dimension.sqft);
   }
 
   function addRow() {
@@ -128,6 +146,25 @@ export function LineItemsTable({ fieldName = "lineItems", items, defaultTaxRate 
                     </option>
                   ))}
                 </select>
+                {dimensions.length > 0 && (
+                  <select
+                    className="border border-slate-300 rounded px-2 py-1 text-xs text-slate-600 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    value=""
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        handleDimensionSelect(index, e.target.value);
+                        e.target.value = "";
+                      }
+                    }}
+                  >
+                    <option value="">— Use dimension —</option>
+                    {dimensions.map((dim) => (
+                      <option key={dim.id} value={dim.id}>
+                        {dim.title} ({dim.sqft.toLocaleString()} sq ft)
+                      </option>
+                    ))}
+                  </select>
+                )}
                 <input
                   {...register(`${fieldName}.${index}.name`)}
                   placeholder="Item name"
