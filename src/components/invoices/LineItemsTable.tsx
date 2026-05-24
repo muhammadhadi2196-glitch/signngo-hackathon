@@ -20,6 +20,7 @@ export interface Dimension {
 
 interface LineItemRow {
   itemId?: string | null;
+  dimensionId?: string | null;
   quantity: number;
   name: string;
   description: string;
@@ -66,12 +67,18 @@ export function LineItemsTable({
   function handleDimensionSelect(index: number, dimensionId: string) {
     const dimension = dimensions.find((d) => d.id === dimensionId);
     if (!dimension) return;
+    setValue(`${fieldName}.${index}.dimensionId`, dimensionId);
     setValue(`${fieldName}.${index}.quantity`, dimension.sqft);
+  }
+
+  function handleDimensionClear(index: number) {
+    setValue(`${fieldName}.${index}.dimensionId`, null);
   }
 
   function addRow() {
     append({
       itemId: null,
+      dimensionId: null,
       quantity: 1,
       name: "",
       description: "",
@@ -102,6 +109,11 @@ export function LineItemsTable({
           const tax = Number(row.taxRate) || 0;
           const subtotal = qty * price;
           const lineTotal = subtotal * (1 + tax / 100);
+          const selectedDimensionId =
+            row.dimensionId &&
+            dimensions.some((d) => d.id === row.dimensionId)
+              ? row.dimensionId
+              : "";
 
           return (
             <div
@@ -149,18 +161,19 @@ export function LineItemsTable({
                 {dimensions.length > 0 && (
                   <select
                     className="border border-slate-300 rounded px-2 py-1 text-xs text-slate-600 focus:outline-none focus:ring-1 focus:ring-slate-400"
-                    value=""
+                    value={selectedDimensionId}
                     onChange={(e) => {
                       if (e.target.value) {
                         handleDimensionSelect(index, e.target.value);
-                        e.target.value = "";
+                      } else {
+                        handleDimensionClear(index);
                       }
                     }}
                   >
                     <option value="">— Use dimension —</option>
                     {dimensions.map((dim) => (
                       <option key={dim.id} value={dim.id}>
-                        {dim.title} ({dim.sqft.toLocaleString()} sq ft)
+                        {dim.title}
                       </option>
                     ))}
                   </select>
