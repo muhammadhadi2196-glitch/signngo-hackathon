@@ -70,6 +70,8 @@ interface MicButtonProps {
 
 type State = "idle" | "recording" | "processing" | "unsupported" | "denied";
 
+const SILENCE_AUTOSTOP_MS = 2000;
+
 export function MicButton({
   onTranscript,
   onError,
@@ -79,6 +81,7 @@ export function MicButton({
   const [state, setState] = useState<State>("idle");
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const finalTranscriptRef = useRef<string>("");
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const ctor = useMemo(() => getSpeechRecognitionCtor(), []);
 
@@ -88,7 +91,17 @@ export function MicButton({
 
   // Cleanup on unmount.
   useEffect(() => {
-    return () => recognitionRef.current?.abort();
+    return () => {
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      recognitionRef.current?.abort();
+    };
+  }, []);
+
+  const clearSilenceTimer = useCallback(() => {
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
   }, []);
 
   const start = useCallback(() => {
@@ -105,15 +118,34 @@ export function MicButton({
       return;
     }
 
-    recognition.continuous = false;
+    // continuous=true lets us keep the session open through the speaker's
+    // natural pauses so we control the silence-stop timing ourselves with a
+    // 2s timer below. Without continuous=true, Chrome ends recognition on
+    // its own (typically ~1s of silence), which is too eager for slower
+    // dictators.
+    recognition.continuous = true;
     recognition.interimResults = true;
     recognition.maxAlternatives = 1;
     recognition.lang = lang;
 
-    recognition.onstart = () => setState("recording");
+    const armSilenceTimer = () => {
+      clearSilenceTimer();
+      silenceTimerRef.current = setTimeout(() => {
+        // 2 s of silence (no new partial or final results) → stop.
+        recognition.stop();
+      }, SILENCE_AUTOSTOP_MS);
+    };
+
+    recognition.onstart = () => {
+      setState("recording");
+      armSilenceTimer();
+    };
 
     recognition.onresult = (event) => {
-      // Concatenate all final results that have arrived so far.
+      // Any result (interim or final) means the user is still talking —
+      // reset the silence timer.
+      armSilenceTimer();
+
       let finalText = "";
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const entry = event.results[i];
@@ -143,6 +175,7 @@ export function MicButton({
     };
 
     recognition.onend = () => {
+      clearSilenceTimer();
       const transcript = finalTranscriptRef.current.trim();
       recognitionRef.current = null;
 
@@ -167,11 +200,12 @@ export function MicButton({
       onError?.(message);
       setState("idle");
     }
-  }, [ctor, lang, onError, onTranscript]);
+  }, [ctor, lang, onError, onTranscript, clearSilenceTimer]);
 
   const stop = useCallback(() => {
+    clearSilenceTimer();
     recognitionRef.current?.stop();
-  }, []);
+  }, [clearSilenceTimer]);
 
   const handleClick = useCallback(() => {
     if (state === "recording") stop();

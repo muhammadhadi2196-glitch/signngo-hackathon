@@ -78,28 +78,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // BobWidget dispatches modal-open actions through the BOB_EVENTS bus
+  // (above) so the voice path can carry the transcript as initialText.
+  // The only action that still flows through this callback is `navigate`.
   const handleBobAction = useCallback(
     (action: BobAction) => {
-      switch (action.type) {
-        case "navigate":
-          if (action.payload) router.push(action.payload);
-          break;
-        case "open_quote_generator":
-          setQuoteGenInitialText("");
-          setQuoteGenAutoStart(false);
-          setQuoteGenOpen(true);
-          break;
-        case "open_rewriter":
-          setRewriterInitialText("");
-          setRewriterOpen(true);
-          break;
-        case "open_property_estimator":
-          setPropertyInitialAddress("");
-          setPropertyOpen(true);
-          break;
-        default:
-          // eslint-disable-next-line no-console
-          console.log("[Bob] unknown action:", action);
+      if (action.type === "navigate" && action.payload) {
+        router.push(action.payload);
       }
     },
     [router]

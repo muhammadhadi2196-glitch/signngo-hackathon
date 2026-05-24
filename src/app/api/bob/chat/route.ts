@@ -4,7 +4,7 @@ import { BOB_SYSTEM_PROMPT } from "@/lib/bob/systemPrompt";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const BOB_MODEL = "claude-3-5-sonnet-20241022";
+const BOB_MODEL = "claude-sonnet-4-6";
 const MAX_TOKENS = 1024;
 const MAX_HISTORY = 30;
 

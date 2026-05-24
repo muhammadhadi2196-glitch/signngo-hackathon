@@ -10,7 +10,7 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const REWRITER_MODEL = "claude-3-5-sonnet-20241022";
+const REWRITER_MODEL = "claude-sonnet-4-6";
 const MAX_INPUT_CHARS = 4000;
 
 interface RewriteRequestBody {

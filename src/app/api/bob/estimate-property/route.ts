@@ -10,7 +10,7 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const VISION_MODEL = "claude-3-5-sonnet-20241022";
+const VISION_MODEL = "claude-sonnet-4-6";
 const STATIC_MAP_SIZE = 800;
 const STATIC_MAP_ZOOM = 20;
 

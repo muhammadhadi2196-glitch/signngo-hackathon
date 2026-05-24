@@ -63,6 +63,13 @@ export function BobWidget({ userId, onAction }: BobWidgetProps) {
   const [voiceCountdown, setVoiceCountdown] = useState<number | null>(null);
   const [voiceError, setVoiceError] = useState<string | null>(null);
 
+  // When a voice-originated message triggers sendMessage, store the
+  // transcript here. After Bob's stream completes and parseBobActions
+  // identifies an open_* action, we dispatch the corresponding modal
+  // event with this transcript as initialText (and autoStart=true for
+  // the Quote Generator). Cleared on consume / abort / new send.
+  const pendingVoiceTranscriptRef = useRef<string | null>(null);
+
   const historyKey = userId ? `${HISTORY_KEY_PREFIX}${userId}` : null;
 
   // ── Hydrate persisted history on mount / userId change ─────────────────
@@ -162,6 +169,10 @@ export function BobWidget({ userId, onAction }: BobWidgetProps) {
   }, []);
 
   // ── Voice-to-Quote ────────────────────────────────────────────────────
+  // sendMessage is defined below; we read it via a ref so the voice timer
+  // can call it without forcing a circular useCallback dependency.
+  const sendMessageRef = useRef<((text: string) => Promise<void>) | null>(null);
+
   const cancelVoiceDispatch = useCallback(() => {
     if (voiceTimerRef.current) {
       clearInterval(voiceTimerRef.current);
@@ -199,13 +210,12 @@ export function BobWidget({ userId, onAction }: BobWidgetProps) {
           const text = voiceTranscriptRef.current;
           voiceTranscriptRef.current = "";
           setVoiceCountdown(null);
-          setInputValue("");
 
-          window.dispatchEvent(
-            new CustomEvent(BOB_EVENTS.openQuoteGenerator, {
-              detail: { initialText: text, autoStart: true },
-            })
-          );
+          // Route through Bob's chat: tag this submission as voice-
+          // originated so any [ACTION:open_*] Bob emits in response is
+          // dispatched as an event with this transcript pre-filled.
+          pendingVoiceTranscriptRef.current = text;
+          void sendMessageRef.current?.(text);
           return;
         }
 
@@ -349,8 +359,52 @@ export function BobWidget({ userId, onAction }: BobWidgetProps) {
             m.id === assistantMsg.id ? { ...m, content: cleaned } : m
           )
         );
-        if (action && onAction) {
-          onAction(action);
+
+        // Consume the voice-context flag set by the voice path. If this
+        // message originated from the mic, the modal-open events below
+        // will carry the transcript as initialText.
+        const voiceTranscript = pendingVoiceTranscriptRef.current;
+        pendingVoiceTranscriptRef.current = null;
+
+        if (action) {
+          // Modal-open actions go through the BOB_EVENTS bus so any caller
+          // (Bob chat, voice, Property Estimator handoff, ?ai=1 URL) shares
+          // one mount point in the layout. Only `navigate` is forwarded to
+          // the parent's onAction handler.
+          switch (action.type) {
+            case "navigate":
+              onAction?.(action);
+              break;
+            case "open_quote_generator":
+              window.dispatchEvent(
+                new CustomEvent(BOB_EVENTS.openQuoteGenerator, {
+                  detail: voiceTranscript
+                    ? { initialText: voiceTranscript, autoStart: true }
+                    : {},
+                })
+              );
+              break;
+            case "open_rewriter":
+              window.dispatchEvent(
+                new CustomEvent(BOB_EVENTS.openRewriter, {
+                  detail: voiceTranscript
+                    ? { initialText: voiceTranscript }
+                    : {},
+                })
+              );
+              break;
+            case "open_property_estimator":
+              window.dispatchEvent(
+                new CustomEvent(BOB_EVENTS.openPropertyEstimator, {
+                  detail: voiceTranscript
+                    ? { initialAddress: voiceTranscript }
+                    : {},
+                })
+              );
+              break;
+            default:
+              onAction?.(action);
+          }
         }
       } catch (err) {
         const aborted =
@@ -379,6 +433,12 @@ export function BobWidget({ userId, onAction }: BobWidgetProps) {
     },
     [isStreaming, markInteracted, messages, onAction, pathname, userId]
   );
+
+  // Keep the ref in sync with the latest sendMessage so the voice timer
+  // (defined above) can call into it without a circular dependency.
+  useEffect(() => {
+    sendMessageRef.current = sendMessage;
+  }, [sendMessage]);
 
   // When a voice error fires, surface it as a transient banner via the
   // assistant message bubble — but keep it cheap (no chat history append).

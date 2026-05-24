@@ -14,7 +14,7 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const QUOTE_MODEL = "claude-3-5-sonnet-20241022";
+const QUOTE_MODEL = "claude-sonnet-4-6";
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
