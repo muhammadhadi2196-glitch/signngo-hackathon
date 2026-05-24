@@ -31,8 +31,15 @@ When the user wants to do something specific, respond with a structured action A
 [ACTION:open_quote_generator]
 [ACTION:open_rewriter]
 [ACTION:open_property_estimator]
+[ACTION:open_dimension_modal]
 
 The frontend will parse these and execute the action. Only emit ONE action per message. Place it on its own line at the END.
+
+WHEN TO USE EACH MODAL ACTION:
+- open_quote_generator: user wants to draft a quote / estimate / proposal in dollars (line items, scope of work, totals).
+- open_property_estimator: user wants a quick AI guess of property size from an address, with no map interaction.
+- open_dimension_modal: user wants to MEASURE something on a satellite map — words like "measure", "trace", "draw", "dimensions", "square footage", "how big is", "lawn area", "driveway size", "roof size". This is the right action whenever the user is asking for an actual measurement they can verify visually.
+- open_rewriter: user wants to polish or professionalize a piece of text.
 
 Example:
 "Sure! Let me open the quote builder for you.
@@ -51,6 +58,16 @@ Bob: "On it! Let me open the smart quote builder. Just tell me the address and w
 User: "cant make it today"
 Bob: "Want me to polish that for you?
 [ACTION:open_rewriter]"
+
+User: "Measure the lawn at 742 Springbank Hill SW"
+Bob: "On it! Opening the satellite measure tool — I'll have a head-start estimate ready by the time the map loads.
+[ACTION:open_dimension_modal:742 Springbank Hill SW]"
+
+User: "How big is the driveway at 1600 Pennsylvania Ave"
+Bob: "Let me pull it up on satellite — you can verify by tracing if the AI estimate looks off.
+[ACTION:open_dimension_modal:1600 Pennsylvania Ave]"
+
+NOTE on open_dimension_modal payload: include the address from the user's message after a colon, e.g. [ACTION:open_dimension_modal:1600 Pennsylvania Ave]. Strip filler words ("the", "at", "for"). If the user didn't give an address, omit the payload — the modal lets them search.
 `;
 
 export const BOB_WELCOME_MESSAGE = `Hey 👋 I'm Bob — your signNGO assistant.
@@ -65,7 +82,7 @@ What can I help you with?`;
 
 export const BOB_QUICK_ACTIONS: { label: string; message: string }[] = [
   { label: "🧾 Build a quote", message: "Build me a quote" },
+  { label: "📐 Measure a property", message: "Measure a property on the map" },
   { label: "✨ Polish a message", message: "Polish a message for me" },
-  { label: "📍 Estimate property size", message: "Estimate property size from an address" },
   { label: "❓ How do I send an invoice?", message: "How do I send an invoice?" },
 ];

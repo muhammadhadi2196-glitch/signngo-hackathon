@@ -11,7 +11,8 @@ export type BobActionType =
   | "navigate"
   | "open_quote_generator"
   | "open_rewriter"
-  | "open_property_estimator";
+  | "open_property_estimator"
+  | "open_dimension_modal";
 
 export interface BobAction {
   type: BobActionType;
@@ -96,6 +97,13 @@ export const BOB_EVENTS = {
   openQuoteGenerator: "bob:open_quote_generator",
   openRewriter: "bob:open_rewriter",
   openPropertyEstimator: "bob:open_property_estimator",
+  openDimensionModal: "bob:open_dimension_modal",
+  /**
+   * Fired by the layout-mounted MapDimensionModal after the user saves a
+   * dimension. QuoteEditor listens for this so a dimension measured via
+   * Bob's chat appears in any open quote without requiring a navigation.
+   */
+  dimensionSaved: "bob:dimension_saved",
 } as const;
 
 export interface OpenQuoteGeneratorDetail {
@@ -112,6 +120,21 @@ export interface OpenRewriterDetail {
 export interface OpenPropertyEstimatorDetail {
   initialAddress?: string;
 }
+export interface OpenDimensionModalDetail {
+  initialAddress?: string;
+}
+export interface DimensionSavedDetail {
+  title: string;
+  sqft: number;
+}
+
+/**
+ * Stash a dimension for the next QuoteEditor mount to pick up. Used when
+ * the user measures something via Bob's chat from a non-quote page —
+ * the dimension waits in sessionStorage until they open or create a
+ * quote, where it's drained and added to the form.
+ */
+export const PENDING_DIMENSIONS_KEY = "bob_pending_dimensions";
 
 // ─────────────────────── Property Estimator ───────────────────────────────
 

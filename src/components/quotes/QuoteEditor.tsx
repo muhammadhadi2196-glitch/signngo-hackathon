@@ -19,7 +19,12 @@ import {
 import { NotesTabs } from "@/components/invoices/NotesTabs";
 import { TotalsPanel } from "@/components/invoices/TotalsPanel";
 import { SalespersonCombobox, type SalespersonOption } from "@/components/ui/SalespersonCombobox";
-import { BOB_EVENTS, type AIQuoteDraft } from "@/lib/bob/types";
+import {
+  BOB_EVENTS,
+  PENDING_DIMENSIONS_KEY,
+  type AIQuoteDraft,
+  type DimensionSavedDetail,
+} from "@/lib/bob/types";
 
 const MapDimensionModal = dynamic(
   () =>
@@ -107,6 +112,58 @@ export function QuoteEditor({
   function handleRemoveDimension(id: string) {
     setDimensions((prev) => prev.filter((d) => d.id !== id));
   }
+
+  // ─── Bob's chat-measured dimensions ──────────────────────────────────
+  // The layout-mounted MapDimensionModal (opened from Bob's chat) saves
+  // via two channels: a sessionStorage queue (for cases where no
+  // QuoteEditor is mounted yet) and a `bob:dimension_saved` event (for
+  // the case where one is). On mount we drain the queue; while mounted
+  // we also listen for the live event.
+  useEffect(() => {
+    try {
+      const raw = window.sessionStorage.getItem(PENDING_DIMENSIONS_KEY);
+      if (raw) {
+        const queue = JSON.parse(raw) as DimensionSavedDetail[];
+        if (Array.isArray(queue) && queue.length > 0) {
+          setDimensions((prev) => [
+            ...prev,
+            ...queue.map((d) => ({
+              id: nanoid(),
+              title: d.title,
+              sqft: d.sqft,
+            })),
+          ]);
+          window.sessionStorage.removeItem(PENDING_DIMENSIONS_KEY);
+          success(
+            queue.length === 1
+              ? `Added Bob's measured dimension: ${queue[0].title}`
+              : `Added ${queue.length} measured dimensions from Bob`
+          );
+        }
+      }
+    } catch {
+      // Corrupt queue — ignore.
+    }
+  }, [success]);
+
+  useEffect(() => {
+    function onDimensionSaved(e: Event) {
+      const detail = (e as CustomEvent<DimensionSavedDetail>).detail;
+      if (!detail) return;
+      setDimensions((prev) => [
+        ...prev,
+        { id: nanoid(), title: detail.title, sqft: detail.sqft },
+      ]);
+      // The toast is already shown by the layout-level save handler;
+      // skipping here to avoid double-firing.
+    }
+    window.addEventListener(BOB_EVENTS.dimensionSaved, onDimensionSaved);
+    return () =>
+      window.removeEventListener(
+        BOB_EVENTS.dimensionSaved,
+        onDimensionSaved
+      );
+  }, []);
 
   const methods = useForm<QuoteFormData>({
     defaultValues: {

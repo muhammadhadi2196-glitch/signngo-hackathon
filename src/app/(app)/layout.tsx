@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Sidebar } from "@/components/layout/Sidebar";
@@ -9,18 +10,31 @@ import { BobWidget } from "@/components/bob/BobWidget";
 import { QuoteGeneratorModal } from "@/components/bob/QuoteGeneratorModal";
 import { RewriterModal } from "@/components/bob/RewriterModal";
 import { PropertyEstimatorModal } from "@/components/bob/PropertyEstimatorModal";
+import { useToast } from "@/components/ui/Toast";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { User } from "@supabase/supabase-js";
 import {
   BOB_EVENTS,
+  PENDING_DIMENSIONS_KEY,
   type BobAction,
+  type DimensionSavedDetail,
+  type OpenDimensionModalDetail,
   type OpenQuoteGeneratorDetail,
   type OpenPropertyEstimatorDetail,
   type OpenRewriterDetail,
 } from "@/lib/bob/types";
 
+const MapDimensionModal = dynamic(
+  () =>
+    import("@/components/quotes/MapDimensionModal").then((m) => ({
+      default: m.MapDimensionModal,
+    })),
+  { ssr: false }
+);
+
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const { success } = useToast();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [user, setUser] = useState<User | null>(null);
 
@@ -35,6 +49,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [propertyInitialAddress, setPropertyInitialAddress] = useState<string>(
     ""
   );
+
+  const [dimensionOpen, setDimensionOpen] = useState(false);
+  const [dimensionInitialAddress, setDimensionInitialAddress] =
+    useState<string>("");
 
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
@@ -62,11 +80,21 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       setPropertyInitialAddress(detail.initialAddress ?? "");
       setPropertyOpen(true);
     }
+    function onOpenDimensionModal(e: Event) {
+      const detail =
+        (e as CustomEvent<OpenDimensionModalDetail>).detail ?? {};
+      setDimensionInitialAddress(detail.initialAddress ?? "");
+      setDimensionOpen(true);
+    }
     window.addEventListener(BOB_EVENTS.openQuoteGenerator, onOpenQuoteGen);
     window.addEventListener(BOB_EVENTS.openRewriter, onOpenRewriter);
     window.addEventListener(
       BOB_EVENTS.openPropertyEstimator,
       onOpenPropertyEstimator
+    );
+    window.addEventListener(
+      BOB_EVENTS.openDimensionModal,
+      onOpenDimensionModal
     );
     return () => {
       window.removeEventListener(BOB_EVENTS.openQuoteGenerator, onOpenQuoteGen);
@@ -75,8 +103,49 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         BOB_EVENTS.openPropertyEstimator,
         onOpenPropertyEstimator
       );
+      window.removeEventListener(
+        BOB_EVENTS.openDimensionModal,
+        onOpenDimensionModal
+      );
     };
   }, []);
+
+  // ── Dimension save handler ──────────────────────────────────────────
+  // Bob's chat can open the measure tool from anywhere in the app, but
+  // saved dimensions ultimately need to land on a quote. We:
+  //   1) dispatch a `bob:dimension_saved` event for any QuoteEditor
+  //      that is currently mounted to pick up immediately,
+  //   2) stash the dimension in sessionStorage so the next mount of
+  //      QuoteEditor (e.g. after the user clicks "Use in new quote")
+  //      drains it, and
+  //   3) toast the user with a quick "Use in new quote" shortcut.
+  const handleDimensionSavedFromLayout = useCallback(
+    (title: string, sqft: number) => {
+      const detail: DimensionSavedDetail = { title, sqft };
+
+      try {
+        const raw = window.sessionStorage.getItem(PENDING_DIMENSIONS_KEY);
+        const queue: DimensionSavedDetail[] = raw ? JSON.parse(raw) : [];
+        queue.push(detail);
+        window.sessionStorage.setItem(
+          PENDING_DIMENSIONS_KEY,
+          JSON.stringify(queue)
+        );
+      } catch {
+        // Storage full / disabled — non-fatal, the event still fires.
+      }
+
+      window.dispatchEvent(
+        new CustomEvent(BOB_EVENTS.dimensionSaved, { detail })
+      );
+
+      success(
+        `${title}: ${sqft.toLocaleString()} sq ft saved — open a quote to add it`
+      );
+      setDimensionOpen(false);
+    },
+    [success]
+  );
 
   // BobWidget dispatches modal-open actions through the BOB_EVENTS bus
   // (above) so the voice path can carry the transcript as initialText.
@@ -121,6 +190,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         initialAddress={propertyInitialAddress}
         onClose={() => setPropertyOpen(false)}
       />
+      {dimensionOpen && (
+        <MapDimensionModal
+          initialAddress={dimensionInitialAddress}
+          onClose={() => setDimensionOpen(false)}
+          onSave={handleDimensionSavedFromLayout}
+        />
+      )}
     </div>
   );
 }

@@ -402,6 +402,18 @@ export function BobWidget({ userId, onAction }: BobWidgetProps) {
                 })
               );
               break;
+            case "open_dimension_modal": {
+              // The dimension modal cares about the address specifically.
+              // Prefer Bob's parsed payload (he strips filler words), then
+              // fall back to a raw voice transcript, then nothing.
+              const initialAddress = action.payload || voiceTranscript || "";
+              window.dispatchEvent(
+                new CustomEvent(BOB_EVENTS.openDimensionModal, {
+                  detail: initialAddress ? { initialAddress } : {},
+                })
+              );
+              break;
+            }
             default:
               onAction?.(action);
           }
