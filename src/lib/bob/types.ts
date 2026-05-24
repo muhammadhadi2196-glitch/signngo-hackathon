@@ -108,6 +108,49 @@ export interface OpenPropertyEstimatorDetail {
   initialAddress?: string;
 }
 
+// ─────────────────────── Property Estimator ───────────────────────────────
+
+export interface PropertyEstimateNumbers {
+  lotSize: number;
+  lawnArea: number;
+  drivewayArea: number;
+  roofArea: number;
+  unit: "sq_ft";
+}
+
+export type PropertyConfidence = "low" | "medium" | "high";
+
+export interface PropertyEstimateResult {
+  address: string;
+  lat: number;
+  lng: number;
+  satelliteImageUrl: string;
+  estimates: PropertyEstimateNumbers;
+  confidence: PropertyConfidence;
+  notes: string;
+}
+
+export interface EstimatePropertyRequest {
+  address: string;
+}
+
+/**
+ * Build the rough job description we hand off to the Quote Generator
+ * after a property scan. Keeps the wording tight and contractor-flavored
+ * so the AI has clean inputs to work with.
+ */
+export function buildQuoteDescriptionFromEstimate(
+  estimate: PropertyEstimateResult
+): string {
+  const e = estimate.estimates;
+  const parts: string[] = [
+    `Property at ${estimate.address}.`,
+    `Measured from satellite — lot ~${e.lotSize.toLocaleString()} sq ft, lawn ~${e.lawnArea.toLocaleString()} sq ft, driveway ~${e.drivewayArea.toLocaleString()} sq ft, roof footprint ~${e.roofArea.toLocaleString()} sq ft.`,
+    `Generate a quote suited to this property — typical use case is weekly seasonal lawn care, but include the most relevant services based on the measurements.`,
+  ];
+  return parts.join(" ");
+}
+
 /**
  * Parse [ACTION:type] or [ACTION:type:payload] tokens from a response.
  * Returns the cleaned text (with action lines removed) and the first action found.

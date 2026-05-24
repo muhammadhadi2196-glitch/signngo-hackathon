@@ -8,12 +8,14 @@ import { NavigationProgress } from "@/components/layout/NavigationProgress";
 import { BobWidget } from "@/components/bob/BobWidget";
 import { QuoteGeneratorModal } from "@/components/bob/QuoteGeneratorModal";
 import { RewriterModal } from "@/components/bob/RewriterModal";
+import { PropertyEstimatorModal } from "@/components/bob/PropertyEstimatorModal";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { User } from "@supabase/supabase-js";
 import {
   BOB_EVENTS,
   type BobAction,
   type OpenQuoteGeneratorDetail,
+  type OpenPropertyEstimatorDetail,
   type OpenRewriterDetail,
 } from "@/lib/bob/types";
 
@@ -27,6 +29,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   const [rewriterOpen, setRewriterOpen] = useState(false);
   const [rewriterInitialText, setRewriterInitialText] = useState<string>("");
+
+  const [propertyOpen, setPropertyOpen] = useState(false);
+  const [propertyInitialAddress, setPropertyInitialAddress] = useState<string>(
+    ""
+  );
 
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
@@ -47,11 +54,25 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       setRewriterInitialText(detail.initialText ?? "");
       setRewriterOpen(true);
     }
+    function onOpenPropertyEstimator(e: Event) {
+      const detail =
+        (e as CustomEvent<OpenPropertyEstimatorDetail>).detail ?? {};
+      setPropertyInitialAddress(detail.initialAddress ?? "");
+      setPropertyOpen(true);
+    }
     window.addEventListener(BOB_EVENTS.openQuoteGenerator, onOpenQuoteGen);
     window.addEventListener(BOB_EVENTS.openRewriter, onOpenRewriter);
+    window.addEventListener(
+      BOB_EVENTS.openPropertyEstimator,
+      onOpenPropertyEstimator
+    );
     return () => {
       window.removeEventListener(BOB_EVENTS.openQuoteGenerator, onOpenQuoteGen);
       window.removeEventListener(BOB_EVENTS.openRewriter, onOpenRewriter);
+      window.removeEventListener(
+        BOB_EVENTS.openPropertyEstimator,
+        onOpenPropertyEstimator
+      );
     };
   }, []);
 
@@ -70,8 +91,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           setRewriterOpen(true);
           break;
         case "open_property_estimator":
-          // eslint-disable-next-line no-console
-          console.log("[Bob] action pending wiring:", action);
+          setPropertyInitialAddress("");
+          setPropertyOpen(true);
           break;
         default:
           // eslint-disable-next-line no-console
@@ -105,6 +126,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         open={rewriterOpen}
         initialText={rewriterInitialText}
         onClose={() => setRewriterOpen(false)}
+      />
+      <PropertyEstimatorModal
+        open={propertyOpen}
+        initialAddress={propertyInitialAddress}
+        onClose={() => setPropertyOpen(false)}
       />
     </div>
   );
