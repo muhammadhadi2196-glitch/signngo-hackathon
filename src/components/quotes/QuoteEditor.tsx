@@ -1,8 +1,8 @@
 "use client";
 
 import { useForm, FormProvider, useWatch } from "react-hook-form";
-import { useRouter } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { ArrowLeft, FileText, Send, Save } from "lucide-react";
 import { api } from "@/lib/api";
@@ -13,6 +13,7 @@ import { LineItemsTable, type ItemOption } from "@/components/invoices/LineItems
 import { NotesTabs } from "@/components/invoices/NotesTabs";
 import { TotalsPanel } from "@/components/invoices/TotalsPanel";
 import { SalespersonCombobox, type SalespersonOption } from "@/components/ui/SalespersonCombobox";
+import { BOB_EVENTS, type AIQuoteDraft } from "@/lib/bob/types";
 
 interface CustomerOption {
   id: string;
@@ -74,10 +75,13 @@ export function QuoteEditor({
   salespeople = [],
 }: Props) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { success, error: showError } = useToast();
   const [saving, setSaving] = useState(false);
   const [showSend, setShowSend] = useState(false);
   const [savedId, setSavedId] = useState<string | undefined>(quoteId);
+  const aiHandledRef = useRef(false);
 
   const methods = useForm<QuoteFormData>({
     defaultValues: {
@@ -97,7 +101,45 @@ export function QuoteEditor({
     },
   });
 
-  const { register, handleSubmit, setValue, watch, control } = methods;
+  const { register, handleSubmit, setValue, watch, control, getValues } = methods;
+
+  // ─── AI draft pre-fill ───────────────────────────────────────────────
+  // If the URL carries `?aiDraft=<id>`, hydrate the form from sessionStorage.
+  // If the URL carries `?ai=1`, open the AI Quote Generator modal.
+  // Both flags are consumed once, then stripped from the URL.
+  useEffect(() => {
+    if (mode !== "create") return;
+    if (aiHandledRef.current) return;
+    if (!searchParams) return;
+
+    const aiDraftId = searchParams.get("aiDraft");
+    const wantsModal = searchParams.get("ai") === "1";
+
+    if (aiDraftId) {
+      try {
+        const raw = window.sessionStorage.getItem(`bob_ai_draft_${aiDraftId}`);
+        if (raw) {
+          const draft = JSON.parse(raw) as AIQuoteDraft;
+          applyAIDraftToForm(draft, getValues, setValue);
+          window.sessionStorage.removeItem(`bob_ai_draft_${aiDraftId}`);
+          success("Bob's draft loaded — review and send when you're ready");
+        }
+      } catch {
+        // Corrupt or missing draft — silently fall through.
+      }
+      aiHandledRef.current = true;
+      router.replace(pathname);
+      return;
+    }
+
+    if (wantsModal) {
+      window.dispatchEvent(
+        new CustomEvent(BOB_EVENTS.openQuoteGenerator, { detail: {} })
+      );
+      aiHandledRef.current = true;
+      router.replace(pathname);
+    }
+  }, [mode, searchParams, pathname, router, getValues, setValue, success]);
 
   const lineItems = useWatch({ control, name: "lineItems" }) || [];
   const publicNote = watch("publicNote");
@@ -372,6 +414,42 @@ export function QuoteEditor({
       )}
     </FormProvider>
   );
+}
+
+// Map an AI-generated quote draft onto the form fields. The form has no
+// dedicated "title" or "payment terms" fields, so we fold those into the
+// existing publicNote and footerNote respectively.
+function applyAIDraftToForm(
+  draft: AIQuoteDraft,
+  getValues: () => QuoteFormData,
+  setValue: (name: keyof QuoteFormData, value: any) => void
+) {
+  const publicNoteParts: string[] = [];
+  if (draft.title) publicNoteParts.push(draft.title);
+  if (draft.scopeOfWork)
+    publicNoteParts.push(`Scope of work\n${draft.scopeOfWork}`);
+  if (draft.exclusions)
+    publicNoteParts.push(`Exclusions\n${draft.exclusions}`);
+
+  if (publicNoteParts.length > 0) {
+    setValue("publicNote", publicNoteParts.join("\n\n"));
+  }
+  if (draft.paymentTerms) setValue("footerNote", draft.paymentTerms);
+  if (draft.notes) setValue("privateNote", draft.notes);
+
+  if (Array.isArray(draft.lineItems) && draft.lineItems.length > 0) {
+    const existingCount = getValues().lineItems.length;
+    const mapped = draft.lineItems.map((li, i) => ({
+      itemId: null,
+      quantity: Number(li.quantity) || 1,
+      name: li.name || "",
+      description: li.description || "",
+      unitPrice: Number(li.unitPrice) || 0,
+      taxRate: Number(li.taxRate) || 0,
+      sortOrder: existingCount + i,
+    }));
+    setValue("lineItems", mapped);
+  }
 }
 
 interface SendModalProps {
