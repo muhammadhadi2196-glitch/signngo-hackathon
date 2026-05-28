@@ -9,10 +9,11 @@ import {
 } from "@react-google-maps/api";
 import area from "@turf/area";
 import { polygon } from "@turf/helpers";
-import { X } from "lucide-react";
+import { Car, Home, Layers, Leaf, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
 import { AddressSearch } from "./AddressSearch";
+import type { PropertyEstimateResult } from "@/lib/bob/types";
 
 const libraries: ("drawing" | "geometry" | "places")[] = [
   "drawing",
@@ -76,9 +77,25 @@ function getDrawingManagerOptions(): google.maps.drawing.DrawingManagerOptions {
 interface MapDimensionModalProps {
   onClose: () => void;
   onSave: (title: string, sqft: number) => void;
+  /** Optional address to seed the modal with (e.g. from Bob's chat handoff). */
+  initialAddress?: string;
 }
 
-export function MapDimensionModal({ onClose, onSave }: MapDimensionModalProps) {
+type SurfaceKey = "lawnArea" | "drivewayArea" | "roofArea" | "lotSize";
+
+interface SurfaceCard {
+  key: SurfaceKey;
+  label: string;
+  sqft: number;
+  icon: React.ReactNode;
+  accent: string;
+}
+
+export function MapDimensionModal({
+  onClose,
+  onSave,
+  initialAddress,
+}: MapDimensionModalProps) {
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? "";
   const { isLoaded, loadError } = useJsApiLoader({
     googleMapsApiKey: apiKey,
@@ -95,6 +112,18 @@ export function MapDimensionModal({ onClose, onSave }: MapDimensionModalProps) {
   } | null>(null);
   const [areaSqMeters, setAreaSqMeters] = useState<number | null>(null);
   const [lineLengthMeters, setLineLengthMeters] = useState<number | null>(null);
+
+  // AI estimate (fires automatically after an address is selected).
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiEstimate, setAiEstimate] = useState<PropertyEstimateResult | null>(
+    null
+  );
+  const [aiError, setAiError] = useState<string | null>(null);
+  // When the user accepts an AI card directly (without tracing) we record
+  // the chosen sqft here so the Save button can use it. Drawing a polygon
+  // afterwards clears this and uses the polygon area instead.
+  const [aiAcceptedSqft, setAiAcceptedSqft] = useState<number | null>(null);
+  const aiAbortRef = useRef<AbortController | null>(null);
 
   const mapRef = useRef<google.maps.Map | null>(null);
   const activePolygonRef = useRef<google.maps.Polygon | null>(null);
@@ -146,6 +175,8 @@ export function MapDimensionModal({ onClose, onSave }: MapDimensionModalProps) {
       activePolygonRef.current = poly;
       attachPathListeners(poly.getPath(), () => updateArea(poly));
       updateArea(poly);
+      // Drawing a polygon supersedes any AI-accepted estimate.
+      setAiAcceptedSqft(null);
     },
     [attachPathListeners, updateArea]
   );
@@ -167,6 +198,43 @@ export function MapDimensionModal({ onClose, onSave }: MapDimensionModalProps) {
     mapRef.current = map;
   }, []);
 
+  const runAIEstimate = useCallback(async (address: string) => {
+    aiAbortRef.current?.abort();
+    const controller = new AbortController();
+    aiAbortRef.current = controller;
+
+    setAiLoading(true);
+    setAiEstimate(null);
+    setAiError(null);
+
+    try {
+      const res = await fetch("/api/bob/estimate-property", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address }),
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        throw new Error(
+          data.error || `Estimator returned ${res.status} ${res.statusText}`
+        );
+      }
+      const data = (await res.json()) as PropertyEstimateResult;
+      setAiEstimate(data);
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      const message =
+        err instanceof Error ? err.message : "Couldn't reach Bob's estimator.";
+      setAiError(message);
+    } finally {
+      if (aiAbortRef.current === controller) aiAbortRef.current = null;
+      setAiLoading(false);
+    }
+  }, []);
+
   const onLocationSelect = useCallback(
     (location: { lat: number; lng: number }, address: string) => {
       setSelectedLocation(location);
@@ -175,19 +243,68 @@ export function MapDimensionModal({ onClose, onSave }: MapDimensionModalProps) {
       setMapZoom(propertyZoom);
       mapRef.current?.panTo(location);
       mapRef.current?.setZoom(propertyZoom);
+      // Clear any prior accepted AI value so the new address starts fresh.
+      setAiAcceptedSqft(null);
+      void runAIEstimate(address);
     },
-    []
+    [runAIEstimate]
   );
+
+  // If we were opened with an initialAddress, kick the AI estimate off
+  // immediately. The map itself can't auto-pan to the address until the
+  // user confirms via AddressSearch (which gives us coords), but the AI
+  // estimate is text-only and works straight away.
+  useEffect(() => {
+    if (!initialAddress) return;
+    if (!isLoaded) return;
+    setSelectedAddress(initialAddress);
+    void runAIEstimate(initialAddress);
+  }, [initialAddress, isLoaded, runAIEstimate]);
 
   useEffect(() => {
     return () => {
       clearPathListeners();
       activePolygonRef.current?.setMap(null);
       activePolylineRef.current?.setMap(null);
+      aiAbortRef.current?.abort();
     };
   }, [clearPathListeners]);
 
-  const sqft = areaSqMeters !== null ? areaSqMeters * SQM_TO_SQFT : null;
+  // Helper: select a surface from the AI estimate cards. "Use this" sets
+  // the title + sqft so the user can save immediately. The user can still
+  // draw a polygon afterwards to override with a verified measurement.
+  const handleAcceptAIEstimate = useCallback(
+    (card: SurfaceCard) => {
+      // Wipe any in-progress trace so it doesn't shadow the AI value.
+      clearPathListeners();
+      activePolygonRef.current?.setMap(null);
+      activePolygonRef.current = null;
+      activePolylineRef.current?.setMap(null);
+      activePolylineRef.current = null;
+      setAreaSqMeters(null);
+      setLineLengthMeters(null);
+
+      setTitle((current) => current.trim() || `${card.label} (AI estimate)`);
+      setAiAcceptedSqft(card.sqft);
+    },
+    [clearPathListeners]
+  );
+
+  const handleVerifyAIEstimate = useCallback((card: SurfaceCard) => {
+    // Pre-fill the title so the user knows which surface they're tracing,
+    // but leave sqft blank so the polygon they draw becomes the source of
+    // truth.
+    setTitle((current) => current.trim() || card.label);
+    setAiAcceptedSqft(null);
+  }, []);
+
+  // Active sqft prefers the polygon trace (more accurate) when present,
+  // otherwise an accepted AI estimate, otherwise nothing.
+  const tracedSqft =
+    areaSqMeters !== null ? areaSqMeters * SQM_TO_SQFT : null;
+  const sqft = tracedSqft ?? aiAcceptedSqft;
+  const sqftSource: "traced" | "ai" | null =
+    tracedSqft !== null ? "traced" : aiAcceptedSqft !== null ? "ai" : null;
   const lengthFt =
     lineLengthMeters !== null ? lineLengthMeters * 3.28084 : null;
   const canSave = title.trim().length > 0 && sqft !== null && sqft > 0;
@@ -196,6 +313,39 @@ export function MapDimensionModal({ onClose, onSave }: MapDimensionModalProps) {
     if (!canSave || sqft === null) return;
     onSave(title.trim(), Math.round(sqft));
   };
+
+  const aiCards: SurfaceCard[] = aiEstimate
+    ? ([
+        {
+          key: "lawnArea",
+          label: "Lawn",
+          sqft: aiEstimate.estimates.lawnArea,
+          icon: <Leaf className="h-3.5 w-3.5" />,
+          accent: "from-emerald-500 to-emerald-700",
+        },
+        {
+          key: "drivewayArea",
+          label: "Driveway",
+          sqft: aiEstimate.estimates.drivewayArea,
+          icon: <Car className="h-3.5 w-3.5" />,
+          accent: "from-slate-500 to-slate-700",
+        },
+        {
+          key: "roofArea",
+          label: "Roof",
+          sqft: aiEstimate.estimates.roofArea,
+          icon: <Layers className="h-3.5 w-3.5" />,
+          accent: "from-blue-500 to-blue-700",
+        },
+        {
+          key: "lotSize",
+          label: "Lot",
+          sqft: aiEstimate.estimates.lotSize,
+          icon: <Home className="h-3.5 w-3.5" />,
+          accent: "from-slate-700 to-slate-900",
+        },
+      ] as SurfaceCard[]).filter((c) => c.sqft > 0)
+    : [];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
@@ -235,6 +385,17 @@ export function MapDimensionModal({ onClose, onSave }: MapDimensionModalProps) {
                 ? `${Math.round(sqft).toLocaleString()} sq ft`
                 : "—"}
             </p>
+            {sqftSource && (
+              <p
+                className={`text-[10px] font-semibold uppercase tracking-wide ${
+                  sqftSource === "traced"
+                    ? "text-emerald-600"
+                    : "text-blue-600"
+                }`}
+              >
+                {sqftSource === "traced" ? "Verified by trace" : "AI estimate"}
+              </p>
+            )}
             {lengthFt !== null && (
               <p className="text-xs text-slate-500">
                 Line: {lengthFt.toLocaleString(undefined, { maximumFractionDigits: 1 })} ft
@@ -380,6 +541,89 @@ export function MapDimensionModal({ onClose, onSave }: MapDimensionModalProps) {
                   >
                     Clear
                   </button>
+                </div>
+              )}
+
+              {/* AI estimate panel */}
+              {(aiLoading || aiEstimate || aiError) && (
+                <div className="absolute bottom-3 right-3 z-10 w-[280px] max-w-[calc(100%-1.5rem)] rounded-xl border border-slate-200 bg-white/95 p-3 shadow-lg backdrop-blur">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="flex h-5 w-5 items-center justify-center rounded-md bg-gradient-to-br from-blue-600 to-blue-800 text-white shadow-sm">
+                        <Sparkles className="h-3 w-3" />
+                      </span>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-600">
+                        Bob's estimate
+                      </p>
+                    </div>
+                    {aiEstimate && (
+                      <span className="rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-500">
+                        {aiEstimate.confidence}
+                      </span>
+                    )}
+                  </div>
+
+                  {aiLoading && (
+                    <div className="mt-2 flex items-center gap-2 text-xs text-slate-500">
+                      <span className="flex items-center gap-0.5">
+                        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-blue-500 [animation-delay:-0.3s]" />
+                        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-blue-500 [animation-delay:-0.15s]" />
+                        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-blue-500" />
+                      </span>
+                      Reading the satellite tile…
+                    </div>
+                  )}
+
+                  {aiError && !aiLoading && (
+                    <p className="mt-2 text-xs leading-snug text-amber-700">
+                      {aiError}
+                    </p>
+                  )}
+
+                  {aiEstimate && !aiLoading && aiCards.length > 0 && (
+                    <div className="mt-2 grid grid-cols-2 gap-1.5">
+                      {aiCards.map((card) => (
+                        <div
+                          key={card.key}
+                          className="rounded-lg border border-slate-200 bg-white p-2"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span
+                              className={`flex h-5 w-5 items-center justify-center rounded-md bg-gradient-to-br text-white shadow-sm ${card.accent}`}
+                            >
+                              {card.icon}
+                            </span>
+                            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                              {card.label}
+                            </p>
+                          </div>
+                          <p className="mt-1 font-mono text-sm font-semibold text-slate-900">
+                            {card.sqft.toLocaleString()}{" "}
+                            <span className="text-[10px] font-medium text-slate-400">
+                              sq ft
+                            </span>
+                          </p>
+                          <div className="mt-1.5 flex gap-1">
+                            <button
+                              type="button"
+                              onClick={() => handleAcceptAIEstimate(card)}
+                              className="flex-1 rounded-md bg-blue-600 px-2 py-1 text-[10px] font-semibold text-white transition hover:bg-blue-700"
+                            >
+                              Use this
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleVerifyAIEstimate(card)}
+                              className="rounded-md border border-slate-300 px-2 py-1 text-[10px] font-medium text-slate-600 transition hover:bg-slate-50"
+                              title={`Trace ${card.label.toLowerCase()} to verify`}
+                            >
+                              Verify
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </>
